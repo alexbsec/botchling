@@ -4,8 +4,6 @@ services:
   rathena-db:
     image: "mariadb:noble"
     container_name: "rathena-db"
-    ports:
-      - "3306:3306"
     volumes:
       - "rathenadb:/var/lib/mysql"
       - "./rathena/sql-files/:/docker-entrypoint-initdb.d"
@@ -30,7 +28,7 @@ services:
     image: "rathena:local"
     container_name: "rathena-builder"
     working_dir: /rathena
-    command: "/rathena/tools/docker/builder.sh"
+    command: "sh /rathena/tools/docker/builder.sh"
     restart: "no"
     volumes:
       - "./rathena:/rathena"
