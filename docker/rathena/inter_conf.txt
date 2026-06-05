@@ -1,0 +1,7 @@
+// rAthena inter-server config override for Docker
+// Service names match docker-compose.yml
+login_server_ip: rathena-db
+ipban_db_ip: rathena-db
+char_server_ip: rathena-db
+map_server_ip: rathena-db
+log_db_ip: rathena-db

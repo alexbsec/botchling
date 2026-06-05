@@ -1,0 +1,213 @@
+services:
+
+  # ── rAthena: Database ─────────────────────────────────────────────────────
+  rathena-db:
+    image: "mariadb:noble"
+    container_name: "rathena-db"
+    ports:
+      - "3306:3306"
+    volumes:
+      - "rathenadb:/var/lib/mysql"
+      - "./rathena/sql-files/:/docker-entrypoint-initdb.d"
+    environment:
+      MYSQL_ROOT_PASSWORD: ragnarok
+      MYSQL_DATABASE: ragnarok
+      MYSQL_USER: ragnarok
+      MYSQL_PASSWORD: ragnarok
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── rAthena: Builder (compiles, then exits) ───────────────────────────────
+  # On first run: ./configure + make clean server  (~5–10 min)
+  # On subsequent runs: skips if binaries already exist in the volume
+  rathena-builder:
+    build:
+      context: ./rathena/tools/docker
+      dockerfile: Dockerfile
+    image: "rathena:local"
+    container_name: "rathena-builder"
+    working_dir: /rathena
+    command: "/rathena/tools/docker/builder.sh"
+    restart: "no"
+    volumes:
+      - "./rathena:/rathena"
+      - "./docker/rathena/inter_conf.txt:/rathena/conf/import/inter_conf.txt"
+      - "./docker/rathena/char_conf.txt:/rathena/conf/import/char_conf.txt"
+      - "./docker/rathena/map_conf.txt:/rathena/conf/import/map_conf.txt"
+    environment:
+      BUILDER_CONFIGURE: "--enable-packetver=20211103"
+
+  # ── rAthena: Login server (port 6900) ─────────────────────────────────────
+  rathena-login:
+    image: "rathena:local"
+    container_name: "rathena-login"
+    working_dir: /rathena
+    command: sh -c "/bin/wait-for rathena-db:3306 -- ./login-server"
+    ports:
+      - "6900:6900"
+    volumes:
+      - "./rathena:/rathena"
+      - "./docker/rathena/inter_conf.txt:/rathena/conf/import/inter_conf.txt"
+      - "./docker/rathena/char_conf.txt:/rathena/conf/import/char_conf.txt"
+      - "./docker/rathena/map_conf.txt:/rathena/conf/import/map_conf.txt"
+    init: true
+    depends_on:
+      rathena-db:
+        condition: service_healthy
+      rathena-builder:
+        condition: service_completed_successfully
+
+  # ── rAthena: Char server (port 6121) ──────────────────────────────────────
+  rathena-char:
+    image: "rathena:local"
+    container_name: "rathena-char"
+    working_dir: /rathena
+    command: sh -c "/bin/wait-for rathena-db:3306 -- ./char-server"
+    ports:
+      - "6121:6121"
+    volumes:
+      - "./rathena:/rathena"
+      - "./docker/rathena/inter_conf.txt:/rathena/conf/import/inter_conf.txt"
+      - "./docker/rathena/char_conf.txt:/rathena/conf/import/char_conf.txt"
+      - "./docker/rathena/map_conf.txt:/rathena/conf/import/map_conf.txt"
+    init: true
+    depends_on:
+      - rathena-login
+
+  # ── rAthena: Map server (port 5121) ───────────────────────────────────────
+  rathena-map:
+    image: "rathena:local"
+    container_name: "rathena-map"
+    working_dir: /rathena
+    command: sh -c "/bin/wait-for rathena-db:3306 -- ./map-server"
+    ports:
+      - "5121:5121"
+    volumes:
+      - "./rathena:/rathena"
+      - "./docker/rathena/inter_conf.txt:/rathena/conf/import/inter_conf.txt"
+      - "./docker/rathena/char_conf.txt:/rathena/conf/import/char_conf.txt"
+      - "./docker/rathena/map_conf.txt:/rathena/conf/import/map_conf.txt"
+      - "botchling-ipc:/var/run/botchling"   # shared with botchling-agent
+    init: true
+    depends_on:
+      - rathena-char
+
+  # ── Botchling: PostgreSQL (sessions) ──────────────────────────────────────
+  botchling-postgres:
+    image: postgres:17
+    container_name: "botchling-postgres"
+    restart: always
+    shm_size: 256mb
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Botchling: MongoDB (raw events) ───────────────────────────────────────
+  botchling-mongodb:
+    image: mongo:8
+    container_name: "botchling-mongodb"
+    restart: always
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    volumes:
+      - mongo_data:/data/db
+
+  # ── Botchling: LocalStack (SQS) ───────────────────────────────────────────
+  localstack:
+    image: localstack/localstack:latest
+    container_name: "botchling-localstack"
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: sqs
+      DEFAULT_REGION: us-east-1
+    volumes:
+      - localstack_data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4566/_localstack/health | grep -q '\"sqs\": \"available\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── Botchling: Grafana (dashboard) ────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    container_name: "botchling-grafana"
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      botchling-postgres:
+        condition: service_healthy
+
+  # ── Botchling: Rust agent + worker ────────────────────────────────────────
+  # Uncomment once the Rust binaries are implemented.
+  #
+  # botchling-agent:
+  #   build:
+  #     context: ./backend
+  #     target: agent
+  #   container_name: "botchling-agent"
+  #   restart: always
+  #   volumes:
+  #     - "botchling-ipc:/var/run/botchling"   # reads the Unix socket from rathena-map
+  #   environment:
+  #     SOCKET_PATH: /var/run/botchling/botchling.sock
+  #     SQS_ENDPOINT: http://localstack:4566
+  #     SQS_QUEUE_URL: http://localstack:4566/000000000000/botchling-events
+  #     AWS_DEFAULT_REGION: us-east-1
+  #   depends_on:
+  #     localstack:
+  #       condition: service_healthy
+  #
+  # botchling-worker:
+  #   build:
+  #     context: ./backend
+  #     target: worker
+  #   container_name: "botchling-worker"
+  #   restart: always
+  #   environment:
+  #     SQS_ENDPOINT: http://localstack:4566
+  #     SQS_QUEUE_URL: http://localstack:4566/000000000000/botchling-events
+  #     AWS_DEFAULT_REGION: us-east-1
+  #     POSTGRES_HOST: botchling-postgres
+  #     POSTGRES_PORT: 5432
+  #     POSTGRES_DB: ${POSTGRES_DB}
+  #     POSTGRES_USER: ${POSTGRES_USER}
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  #     MONGO_HOST: botchling-mongodb
+  #     MONGO_PORT: 27017
+  #     MONGO_USER: ${MONGO_USER}
+  #     MONGO_PASSWORD: ${MONGO_PASSWORD}
+  #   depends_on:
+  #     localstack:
+  #       condition: service_healthy
+  #     botchling-postgres:
+  #       condition: service_healthy
+
+volumes:
+  rathenadb:
+  pgdata:
+  mongo_data:
+  localstack_data:
+  grafana_data:
+  botchling-ipc:      # shared Unix socket dir: rathena-map writes, botchling-agent reads

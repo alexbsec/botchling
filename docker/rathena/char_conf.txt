@@ -1,0 +1,3 @@
+// rAthena char-server config override for Docker
+login_ip: rathena-login   // internal Docker network name
+char_ip: 127.0.0.1        // IP the client connects to (Docker Desktop exposes to host)
