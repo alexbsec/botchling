@@ -3,4 +3,4 @@
 	url = https://github.com/alexbsec/botchling_rathena
 [submodule "backend"]
 	path = backend
-	url = https://github.com/alexbsec/botchling.git
+	url = https://github.com/alexbsec/botchling_backend.git
