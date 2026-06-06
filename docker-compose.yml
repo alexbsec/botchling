@@ -36,7 +36,7 @@ services:
       - "./docker/rathena/char_conf.txt:/rathena/conf/import/char_conf.txt"
       - "./docker/rathena/map_conf.txt:/rathena/conf/import/map_conf.txt"
     environment:
-      BUILDER_CONFIGURE: "--enable-packetver=20211103"
+      BUILDER_CONFIGURE: "--enable-packetver=20250402"
 
   # ── rAthena: Login server (port 6900) ─────────────────────────────────────
   rathena-login:
@@ -63,7 +63,7 @@ services:
     image: "rathena:local"
     container_name: "rathena-char"
     working_dir: /rathena
-    command: sh -c "/bin/wait-for rathena-db:3306 -- ./char-server"
+    command: sh -c "/bin/wait-for rathena-db:3306 -- /bin/wait-for rathena-login:6900 -- ./char-server"
     ports:
       - "6121:6121"
     volumes:
@@ -80,7 +80,7 @@ services:
     image: "rathena:local"
     container_name: "rathena-map"
     working_dir: /rathena
-    command: sh -c "/bin/wait-for rathena-db:3306 -- ./map-server"
+    command: sh -c "/bin/wait-for rathena-db:3306 -- /bin/wait-for rathena-char:6121 -- ./map-server"
     ports:
       - "5121:5121"
     volumes:
