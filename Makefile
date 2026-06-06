@@ -1,4 +1,4 @@
-.PHONY: rathena botchling-infra down builder
+.PHONY: rathena botchling-infra down builder botchling up
 
 rathena:
 	@docker compose up -d rathena-db rathena-login rathena-char rathena-map
@@ -11,3 +11,10 @@ down:
 
 builder:
 	@docker compose up rathena-builder
+
+botchling:
+	@cd backend && cargo build --release
+
+up:
+	@docker compose up -d
+
