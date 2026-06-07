@@ -93,26 +93,6 @@ services:
     depends_on:
       - rathena-char
 
-  # ── Botchling: PostgreSQL (sessions) ──────────────────────────────────────
-  botchling-postgres:
-    image: postgres:17
-    container_name: "botchling-postgres"
-    restart: always
-    shm_size: 256mb
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   # ── Botchling: MongoDB (raw events) ───────────────────────────────────────
   botchling-mongodb:
     image: mongo:8
@@ -125,6 +105,12 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
     volumes:
       - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   # ── Botchling: Grafana (dashboard) ────────────────────────────────────────
   grafana:
@@ -137,7 +123,7 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
     depends_on:
-      botchling-postgres:
+      botchling-mongodb:
         condition: service_healthy
 
   # ── Botchling: Rust backend ───────────────────────────────────────────────
@@ -155,21 +141,13 @@ services:
       MONGO_DB: ${MONGO_DB:-botchling_database}
       MONGO_USER: ${MONGO_USER}
       MONGO_PASSWORD: ${MONGO_PASSWORD}
-      POSTGRES_HOST: botchling-postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       LOG_LEVEL: trace
     depends_on:
       botchling-mongodb:
         condition: service_started
-      botchling-postgres:
-        condition: service_healthy
 
 volumes:
   rathenadb:
-  pgdata:
   mongo_data:
   grafana_data:
   botchling-ipc:
