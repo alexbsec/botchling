@@ -4,3 +4,6 @@
 [submodule "backend"]
 	path = backend
 	url = https://github.com/alexbsec/botchling_backend.git
+[submodule "openkore"]
+    path = openkore
+    url = https://github.com/alexbsec/openkore
